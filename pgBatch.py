@@ -51,8 +51,8 @@ if uploaded_file:
     # -------------------------------
     # 1. Data Loading & Preprocessing (Main Training Data)
     # -------------------------------
-    data_file = 'Grouped_Data.xlsx'
-    df = pd.read_excel(data_file)
+    data_file = 'Grouped_Data.csv'
+    df = pd.read_csv(data_file)
 
     target_col = 'Waste %'
     y = df[target_col].astype(np.float32)
