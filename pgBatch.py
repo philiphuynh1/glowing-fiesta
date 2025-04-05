@@ -6,6 +6,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error
 import xgboost as xgb
 import scipy.stats as stats
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Set up the Streamlit page
 st.set_page_config(page_title="Batch Job", layout="centered")
@@ -40,44 +41,56 @@ if uploaded_file:
     def load_excel(file_path):
         return pd.read_excel(file_path)
 
-    def train_models(n_iterations, X_train_full, y_train_full, X_test, y_test, params):
-        new_train_nrmse_list = []
-        new_test_nrmse_list = []
-        original_test_nrmse_list = []
+    def train_single_model(i, X_train_full, y_train_full, X_test, y_test, params):
+        # Split the training data into a new training and testing subset
+        X_new_train, X_new_test, y_new_train, y_new_test = train_test_split(
+            X_train_full, y_train_full, test_size=0.20, random_state=i
+        )
+        # Train a model with n_jobs=1 to avoid oversubscription in parallel mode
+        model = xgb.XGBRegressor(**params)
+        model.fit(X_new_train, y_new_train)
+
+        # Calculate metrics on new train and test splits
+        pred_new_train = model.predict(X_new_train)
+        pred_new_test = model.predict(X_new_test)
+        mse_new_train = mean_squared_error(y_new_train, pred_new_train)
+        mse_new_test = mean_squared_error(y_new_test, pred_new_test)
+        nrmse_new_train = compute_nrmse(y_new_train, pred_new_train)
+        nrmse_new_test = compute_nrmse(y_new_test, pred_new_test)
+
+        # Metrics on the original test set
+        pred_original_test = model.predict(X_test)
+        mse_original_test = mean_squared_error(y_test, pred_original_test)
+        nrmse_original_test = compute_nrmse(y_test, pred_original_test)
+
+        return (model, mse_new_train, mse_new_test, nrmse_new_train,
+                nrmse_new_test, mse_original_test, nrmse_original_test)
+
+    def train_models_parallel(n_iterations, X_train_full, y_train_full, X_test, y_test, params, max_workers=8):
+        trained_models = []
         new_train_mse_list = []
         new_test_mse_list = []
+        new_train_nrmse_list = []
+        new_test_nrmse_list = []
         original_test_mse_list = []
-        trained_models = []
+        original_test_nrmse_list = []
 
-        for i in range(n_iterations):
-            # Split the training data into a new training and testing subset
-            X_new_train, X_new_test, y_new_train, y_new_test = train_test_split(
-                X_train_full, y_train_full, test_size=0.20, random_state=i
-            )
-            model = xgb.XGBRegressor(**params)
-            model.fit(X_new_train, y_new_train)
-            trained_models.append(model)
+        # Use ThreadPoolExecutor to parallelize training iterations
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = [executor.submit(train_single_model, i, X_train_full, y_train_full, X_test, y_test, params)
+                       for i in range(n_iterations)]
+            for future in as_completed(futures):
+                (model, mse_new_train, mse_new_test, nrmse_new_train, nrmse_new_test,
+                 mse_original_test, nrmse_original_test) = future.result()
+                trained_models.append(model)
+                new_train_mse_list.append(mse_new_train)
+                new_test_mse_list.append(mse_new_test)
+                new_train_nrmse_list.append(nrmse_new_train)
+                new_test_nrmse_list.append(nrmse_new_test)
+                original_test_mse_list.append(mse_original_test)
+                original_test_nrmse_list.append(nrmse_original_test)
 
-            # New training and testing predictions and metrics
-            pred_new_train = model.predict(X_new_train)
-            pred_new_test = model.predict(X_new_test)
-            mse_new_train = mean_squared_error(y_new_train, pred_new_train)
-            mse_new_test = mean_squared_error(y_new_test, pred_new_test)
-            new_train_mse_list.append(mse_new_train)
-            new_test_mse_list.append(mse_new_test)
-            nrmse_new_train = compute_nrmse(y_new_train, pred_new_train)
-            nrmse_new_test = compute_nrmse(y_new_test, pred_new_test)
-            new_train_nrmse_list.append(nrmse_new_train)
-            new_test_nrmse_list.append(nrmse_new_test)
-
-            # Original test set metrics
-            pred_original_test = model.predict(X_test)
-            mse_original_test = mean_squared_error(y_test, pred_original_test)
-            original_test_mse_list.append(mse_original_test)
-            nrmse_original_test = compute_nrmse(y_test, pred_original_test)
-            original_test_nrmse_list.append(nrmse_original_test)
-
-        # Print out the averages (these remain in your console)
+        # Print average metrics
         print("Average New Training NRMSE (100 iterations):", np.mean(new_train_nrmse_list))
         print("Average New Testing NRMSE (100 iterations):", np.mean(new_test_nrmse_list))
         print("Average Original Testing NRMSE (100 iterations):", np.mean(original_test_nrmse_list))
@@ -121,26 +134,27 @@ if uploaded_file:
             'number_up_entry_grouped', 'OFFSET?', 'Operation', 'Test Code'
         ]
         X = df[selected_features]
-        # One-hot encode categorical features (only once)
+        # One-hot encode categorical features
         X_encoded = pd.get_dummies(X, drop_first=True)
 
-        # Split into training and original test sets (80/20 split)
+        # Split into training and test sets (80/20 split)
         X_train_full, X_test, y_train_full, y_test = train_test_split(
             X_encoded, y, test_size=0.20, random_state=42
         )
 
-        # XGBoost parameters
+        # XGBoost parameters (set n_jobs=1 for each model when training in parallel)
         best_params = {
             'max_depth': 5,
             'learning_rate': 0.1,
             'n_estimators': 100,
             'objective': 'reg:squarederror',
-            'random_state': 42
+            'random_state': 42,
+            'n_jobs': 1
         }
 
-        # Train 100 models
-        n_iterations = 10
-        trained_models = train_models(n_iterations, X_train_full, y_train_full, X_test, y_test, best_params)
+        # Train models in parallel (100 iterations)
+        n_iterations = 100
+        trained_models = train_models_parallel(n_iterations, X_train_full, y_train_full, X_test, y_test, best_params)
 
         # Load new jobs file (uploaded Excel) and process for predictions
         df_jobs = pd.read_excel(uploaded_file)
@@ -156,13 +170,13 @@ if uploaded_file:
         # Align new jobs data with training columns
         X_jobs_encoded = X_jobs_encoded.reindex(columns=X_encoded.columns, fill_value=0)
 
-        # Predict using all trained models
+        # Predict using all trained models (using list comprehension)
         all_preds = [model.predict(X_jobs_encoded) for model in trained_models]
         all_preds = np.array(all_preds).T  # shape: (num_jobs, 100)
         df_jobs['pred_mean'] = all_preds.mean(axis=1)
         df_jobs['pred_std'] = all_preds.std(axis=1)
 
-        # Group predictions by job_number and Machine Group 1 (carry over qty_ordered)
+        # Group predictions by job_number and Machine Group 1
         group_cols = ['job_number', 'Machine Group 1']
         grouped = df_jobs.groupby(group_cols).agg({
             'pred_mean': 'mean',
@@ -183,7 +197,7 @@ if uploaded_file:
     with st.spinner("Computing optimal Q1 and processing job simulations, please wait..."):
         Cu = 3.41  # Underage cost
         Co = 0.71  # Overage cost
-        n_simulations = 1000
+        n_simulations = 10000
 
         # Reload the grouped predictions
         jobs_df = pd.read_excel(output_file_grouped)
