@@ -51,7 +51,12 @@ if uploaded_file:
     # -------------------------------
     # 1. Data Loading & Preprocessing (Main Training Data)
     # -------------------------------
-    data_file = 'Grouped_Data.csv'
+    # Determine the current directory of this script
+    current_dir = os.path.dirname(__file__)
+    # Construct the full file path to the CSV file
+    data_file = os.path.join(current_dir, "Grouped_Data.csv")
+
+    # Load the CSV data
     df = pd.read_csv(data_file)
 
     target_col = 'Waste %'
