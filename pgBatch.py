@@ -9,13 +9,16 @@ from sklearn.metrics import mean_squared_error
 import xgboost as xgb
 import scipy.stats as stats
 
+
+
+
 # FIRST SECTION
 
 # Set page title
 st.set_page_config(page_title="Batch Job", layout="centered")
 
 if st.button(label="Return to Home Page", key=None, help=None, type="secondary", icon=None,
-             disabled=False, use_container_width=False):
+            disabled=False, use_container_width=False):
     st.switch_page("pgTitle.py")
 
 # Title
@@ -48,13 +51,8 @@ if uploaded_file:
     # -------------------------------
     # 1. Data Loading & Preprocessing (Main Training Data)
     # -------------------------------
-    # Updated to use CSV file if available.
-    data_file = 'Grouped_Data.csv'
-    if not os.path.exists(data_file):
-        df = pd.read_excel("Grouped_Data.xlsx")
-        df.to_csv(data_file, index=False)
-    else:
-        df = pd.read_csv(data_file)
+    data_file = 'Grouped_Data.xlsx'
+    df = pd.read_excel(data_file)
 
     target_col = 'Waste %'
     y = df[target_col].astype(np.float32)
@@ -412,7 +410,7 @@ if uploaded_file:
         filtered_df = df[df.iloc[:, 0] == STjob_selection]
 
         if not filtered_df.empty:
-            # Read the Machine Input (Column 8) and Final Demand (Column 2)
+        # Read the Machine Input (Column 8) and Final Demand (Column 2)
             STmachine_input = filtered_df.iloc[:, 7].values  # Column index 8 (0-based index → 7)
             STfinal_demand = filtered_df.iloc[:, 1].unique()  # Column index 2 (0-based index → 1)
             STmachine_name = filtered_df.iloc[:, 6].values  # Column index 7 (0-based index → 6)
@@ -426,7 +424,7 @@ if uploaded_file:
             st.write(f"### Selected Job: {STjob_selection}")
             st.write(f"#### Starting Input: {initial_input}")
 
-            col1, col2 = st.columns(2)
+            col1,col2 = st.columns(2)
             with col1:
                 st.write("**Machine Name:**")
                 st.write(STmachine_name)
