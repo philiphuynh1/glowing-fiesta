@@ -3,7 +3,7 @@ import math
 
 #Startup Page
 st.image("swLogo.png", caption=None, width=200)
-st.title("QUANTITY philip")
+st.title("QUANTITY phili")
 
 if st.button(label="Single", key=None, help=None, type="primary", icon=None,
             disabled=False, use_container_width=True):
