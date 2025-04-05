@@ -9,16 +9,13 @@ from sklearn.metrics import mean_squared_error
 import xgboost as xgb
 import scipy.stats as stats
 
-
-
-
 # FIRST SECTION
 
 # Set page title
 st.set_page_config(page_title="Batch Job", layout="centered")
 
 if st.button(label="Return to Home Page", key=None, help=None, type="secondary", icon=None,
-            disabled=False, use_container_width=False):
+             disabled=False, use_container_width=False):
     st.switch_page("pgTitle.py")
 
 # Title
@@ -32,7 +29,7 @@ if uploaded_file:
 # SECOND SECTION
 st.markdown("---")  # Horizontal line
 
-#  File Download
+# File Download
 st.markdown("# OPTIMAL STARTING QUANTITIES")
 
 if uploaded_file:
@@ -51,12 +48,7 @@ if uploaded_file:
     # -------------------------------
     # 1. Data Loading & Preprocessing (Main Training Data)
     # -------------------------------
-    # Determine the current directory of this script
-    current_dir = os.path.dirname(__file__)
-    # Construct the full file path to the CSV file
-    data_file = os.path.join(current_dir, "Grouped_Data.csv")
-
-    # Load the CSV data
+    data_file = 'Grouped_Data.csv'
     df = pd.read_csv(data_file)
 
     target_col = 'Waste %'
@@ -241,7 +233,6 @@ if uploaded_file:
     grouped.to_excel(output_file_grouped, index=False)
     print("Grouped predictions (with qty_ordered) saved to", output_file_grouped)
 
-
     # PHASE 2
 
     def compute_optimal_Q1(final_demand, machine_sequence, Cu, Co, n_simulations=10000, random_seed=42):
@@ -370,8 +361,7 @@ if uploaded_file:
     results_df.to_excel(output_file, index=False)
     print("Results saved to", output_file)
 
-
-# OUTPUT
+    # OUTPUT
 
     st.write("##### Important features")
     st.write('Flute Code Grouped, Qty Bucket, Component Code Grouped, Machine Group 1, Last Operation, qty_ordered, number_up_entry_grouped, OFFSET?, Operation, Test Code')
@@ -415,7 +405,7 @@ if uploaded_file:
         filtered_df = df[df.iloc[:, 0] == STjob_selection]
 
         if not filtered_df.empty:
-        # Read the Machine Input (Column 8) and Final Demand (Column 2)
+            # Read the Machine Input (Column 8) and Final Demand (Column 2)
             STmachine_input = filtered_df.iloc[:, 7].values  # Column index 8 (0-based index → 7)
             STfinal_demand = filtered_df.iloc[:, 1].unique()  # Column index 2 (0-based index → 1)
             STmachine_name = filtered_df.iloc[:, 6].values  # Column index 7 (0-based index → 6)
@@ -429,7 +419,7 @@ if uploaded_file:
             st.write(f"### Selected Job: {STjob_selection}")
             st.write(f"#### Starting Input: {initial_input}")
 
-            col1,col2 = st.columns(2)
+            col1, col2 = st.columns(2)
             with col1:
                 st.write("**Machine Name:**")
                 st.write(STmachine_name)
