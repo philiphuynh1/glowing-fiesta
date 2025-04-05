@@ -7,13 +7,11 @@ from sklearn.metrics import mean_squared_error
 import xgboost as xgb
 import scipy.stats as stats
 
-# Configure page and caching for heavy computations
 st.set_page_config(page_title="Batch Job", layout="centered")
 
 @st.cache_data
 def load_grouped_data(file_path='Grouped_Data.csv'):
-    df = pd.read_csv(file_path)
-    return df
+    return pd.read_csv(file_path)
 
 def preprocess_data(df):
     target_col = 'Waste %'
@@ -28,8 +26,7 @@ def preprocess_data(df):
     return X_encoded, y
 
 @st.cache_resource
-def train_models(X_encoded, y, n_iterations=100):
-    # Split data: 80% training, 20% test
+def train_models(X_encoded, y, n_iterations=10):  # Reduced iterations here
     X_train_full, X_test, y_train_full, y_test = train_test_split(
         X_encoded, y, test_size=0.20, random_state=42
     )
@@ -40,7 +37,7 @@ def train_models(X_encoded, y, n_iterations=100):
         'n_estimators': 100,
         'objective': 'reg:squarederror',
         'random_state': 42,
-        'n_jobs': -1  # utilize all cores
+        'n_jobs': -1  # Use all available cores
     }
     
     trained_models = []
@@ -52,8 +49,7 @@ def train_models(X_encoded, y, n_iterations=100):
         norm_factor = y_true.max() - y_true.min()
         return rmse / norm_factor if norm_factor != 0 else rmse
     
-    # Optionally, use a progress spinner
-    with st.spinner("Training models..."):
+    with st.spinner(f"Training models ({n_iterations} iterations)..."):
         for i in range(n_iterations):
             X_new_train, X_new_test, y_new_train, y_new_test = train_test_split(
                 X_train_full, y_train_full, test_size=0.20, random_state=i
@@ -73,7 +69,6 @@ def train_models(X_encoded, y, n_iterations=100):
             original_test_mse_list.append(mean_squared_error(y_test, pred_original_test))
             original_test_nrmse_list.append(compute_nrmse(y_test, pred_original_test))
     
-    # Summarize metrics
     metrics = {
         'avg_new_train_nrmse': np.mean(new_train_nrmse_list),
         'avg_new_test_nrmse': np.mean(new_test_nrmse_list),
@@ -85,7 +80,6 @@ def train_models(X_encoded, y, n_iterations=100):
     return trained_models, metrics, X_test, y_test
 
 def predict_jobs(trained_models, X_encoded, uploaded_file):
-    # Load and preprocess the new jobs file from uploader
     df_jobs = pd.read_excel(uploaded_file)
     df_jobs = df_jobs[~df_jobs['Machine Group 1'].str.strip().eq('PURCHASED BOARD/OFFSET')]
     feature_cols = [
@@ -102,7 +96,6 @@ def predict_jobs(trained_models, X_encoded, uploaded_file):
     df_jobs['pred_mean'] = all_preds.mean(axis=1)
     df_jobs['pred_std'] = all_preds.std(axis=1)
     
-    # Group predictions
     grouped = df_jobs.groupby(['job_number', 'Machine Group 1']).agg({
         'pred_mean': 'mean',
         'pred_std': 'mean',
@@ -112,9 +105,11 @@ def predict_jobs(trained_models, X_encoded, uploaded_file):
     grouped.to_excel('Predicted_Jobs_Grouped.xlsx', index=False)
     return grouped
 
-def compute_optimal_Q1(final_demand, machine_sequence, Cu, Co, n_simulations=10000, random_seed=42):
+def compute_optimal_Q1(final_demand, machine_sequence, Cu, Co, n_simulations=1000, random_seed=42):
+    """
+    Reduced simulation count to 1000 for faster computation.
+    """
     np.random.seed(random_seed)
-    # Vectorized simulation for efficiency
     multipliers = np.ones(n_simulations)
     for machine_name, waste_mean, waste_std in machine_sequence:
         w_mean = waste_mean / 100.0
@@ -147,8 +142,8 @@ if uploaded_file:
     df_grouped = load_grouped_data()
     X_encoded, y = preprocess_data(df_grouped)
     
-    # Train models and display metrics
-    trained_models, metrics, X_test, y_test = train_models(X_encoded, y)
+    # Train models with fewer iterations
+    trained_models, metrics, X_test, y_test = train_models(X_encoded, y, n_iterations=10)
     st.write("#### Training Metrics")
     st.write(metrics)
     
@@ -156,8 +151,39 @@ if uploaded_file:
     grouped = predict_jobs(trained_models, X_encoded, uploaded_file)
     st.write("Grouped predictions saved to Predicted_Jobs_Grouped.xlsx")
     
-    # Continue with PHASE 2 and additional processing...
-    # (The simulation and export logic would be similarly refactored into functions.)
+    # PHASE 2: Compute optimal Q1 values for each job using reduced simulation count
+    Cu = 3.41  # Underage cost
+    Co = 0.71  # Overage cost
+    jobs_df = pd.read_excel('Predicted_Jobs_Grouped.xlsx')
+    
+    results = []
+    for job_number, group in jobs_df.groupby('job_number', sort=False):
+        group = group.sort_index()
+        final_demand = group.iloc[0]['qty_ordered']
+        machine_sequence = []
+        for idx, row in group.iterrows():
+            machine_name = row['Machine Group 1']
+            waste_mean = row['pred_mean']
+            waste_std = row['pred_std']
+            machine_sequence.append((machine_name, waste_mean, waste_std))
+        Q1_optimal, Q1_mean, Q1_std = compute_optimal_Q1(final_demand, machine_sequence, Cu, Co, n_simulations=1000)
+        feed = Q1_optimal
+        for order, (machine_name, waste_mean, waste_std) in enumerate(machine_sequence, start=1):
+            results.append({
+                'job_number': job_number,
+                'final_demand': final_demand,
+                'Q1_optimal': Q1_optimal,
+                'Q1_mean': Q1_mean,
+                'Q1_std': Q1_std,
+                'machine_order': order,
+                'machine_name': machine_name,
+                'machine_input': feed
+            })
+            feed = feed * (1 - waste_mean / 100.0)
+    
+    results_df = pd.DataFrame(results)
+    results_df.to_excel('Job_Machine_Quantities.xlsx', index=False)
+    st.write("Results saved to Job_Machine_Quantities.xlsx")
     
     # File download section
     download_path = "Job_Machine_Quantities.xlsx"
@@ -166,16 +192,5 @@ if uploaded_file:
             st.download_button(label="DOWNLOAD", data=f, file_name="Job_Machine_Quantities.xlsx")
     else:
         st.write("Job_Machine_Quantities.xlsx not found!")
-    
-    # Quick View section (ensure you load the file only once)
-    @st.cache_data
-    def load_excel(file_path):
-        return pd.read_excel(file_path)
-    
-    if os.path.exists(download_path):
-        df_results = load_excel(download_path)
-        # Add your selectbox and display logic here...
-    else:
-        st.error("Job_Machine_Quantities.xlsx not found!")
 else:
     st.write("To view, import a file first.")
